@@ -52,14 +52,20 @@ mkvirtualenv --python=/usr/bin/python3.10 msdp
 
 # Install dependencies
 pip install -r requirements.txt
+
+# Install MySQL client (required for PythonAnywhere)
+pip install mysqlclient
 ```
 
 ### Step 4: Setup Database
 
 1. Go to **"Databases"** tab
-2. Click **"Initialize PostgreSQL"** (FREE 100MB)
-3. Note the connection details shown
-4. Create `.env` file:
+2. You'll see **MySQL** is already initialized (FREE 500MB)
+3. Create a new database:
+   - Database name: `YOUR_USERNAME$msdp` (replace YOUR_USERNAME)
+   - Click **"Create"**
+4. Note the **MySQL hostname** and your **password**
+5. Create `.env` file:
 
 ```bash
 cd ~/MSDP-backend
@@ -72,7 +78,7 @@ SECRET_KEY=generate-using-command-below
 DEBUG=False
 ALLOWED_HOSTS=YOUR_USERNAME.pythonanywhere.com
 FRONTEND_URL=https://your-vercel-app.vercel.app
-DATABASE_URL=postgresql://YOUR_USERNAME:PASSWORD@YOUR_USERNAME-xxxx.postgres.pythonanywhere-services.com/YOUR_USERNAME$msdp
+DATABASE_URL=mysql://YOUR_USERNAME:YOUR_PASSWORD@YOUR_USERNAME.mysql.pythonanywhere-services.com/YOUR_USERNAME$msdp
 ```
 
 Generate SECRET_KEY:
@@ -317,7 +323,7 @@ vercel
 |---------|---------------|---------|--------|
 | **Card Required** | ❌ Never | ❌ Not for trial | ❌ Never |
 | **Free Tier** | ✅ Forever | ✅ $5 credit | ✅ Forever |
-| **PostgreSQL** | ✅ 100MB | ✅ 1GB | ❌ Need external |
+| **Database** | ✅ MySQL 500MB | ✅ PostgreSQL 1GB | ❌ Need external |
 | **Celery** | ❌ Use cron | ✅ Full support | ❌ No |
 | **Setup Difficulty** | Medium | Easy | Hard |
 | **Best For** | Django apps | Full-stack | Simple APIs |
