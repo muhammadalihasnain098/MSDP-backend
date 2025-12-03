@@ -50,11 +50,28 @@ class PharmacySales(models.Model):
     
     Stores daily medicine sales data.
     Used as features (X) in forecasting models.
+    Medicine names are automatically mapped to diseases during import.
     """
     
+    DISEASE_CHOICES = [
+        ('DENGUE', 'Dengue'),
+        ('ANTIMALARIA', 'Anti-Malaria'),
+        ('CHOLERA', 'Cholera'),
+        ('DIARRHOEA', 'Diarrhoea'),
+        ('UNKNOWN', 'Unknown'),
+    ]
+    
     date = models.DateField()
-    medicine = models.CharField(max_length=50)  # Coartem, Fansidar, Panadol, Calpol
+    medicine = models.CharField(max_length=100)  # Medicine/brand name
     sale = models.DecimalField(max_digits=10, decimal_places=2)
+    
+    # Auto-detected disease category based on medicine name
+    disease_category = models.CharField(
+        max_length=20, 
+        choices=DISEASE_CHOICES,
+        default='UNKNOWN',
+        help_text='Automatically detected from medicine name'
+    )
     
     # Optional: track data source for auditing
     source = models.CharField(max_length=100, blank=True, null=True)
@@ -68,10 +85,11 @@ class PharmacySales(models.Model):
         indexes = [
             models.Index(fields=['date', 'medicine']),
             models.Index(fields=['medicine', 'date']),
+            models.Index(fields=['disease_category', 'date']),
         ]
     
     def __str__(self):
-        return f"{self.medicine} - {self.date}: {self.sale}"
+        return f"{self.medicine} ({self.disease_category}) - {self.date}: {self.sale}"
 
 
 class Dataset(models.Model):
