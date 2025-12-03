@@ -100,13 +100,23 @@ def _import_lab_data(df, disease):
     from .models import LabTest
     errors = []
     
-    # Check required columns
-    required_columns = ['date', 'positive_tests', 'total_tests']
+    # Check required columns - accept either 'positive_tests' or 'cases'
+    required_columns = ['date', 'total_tests']
     missing_columns = [col for col in required_columns if col not in df.columns]
+    
+    # Check for positive tests column (accept either name)
+    has_positive_tests = 'positive_tests' in df.columns
+    has_cases = 'cases' in df.columns
+    
+    if not (has_positive_tests or has_cases):
+        missing_columns.append('positive_tests or cases')
     
     if missing_columns:
         errors.append(f"Missing required columns: {', '.join(missing_columns)}. Found columns: {', '.join(df.columns)}")
         return errors
+    
+    # Determine which column to use for positive tests
+    positive_col = 'positive_tests' if has_positive_tests else 'cases'
     
     # Import data
     imported_count = 0
@@ -127,7 +137,7 @@ def _import_lab_data(df, disease):
                 date=date_obj,
                 disease=disease,
                 defaults={
-                    'positive_tests': int(row['positive_tests']),
+                    'positive_tests': int(row[positive_col]),
                 }
             )
             imported_count += 1
