@@ -105,7 +105,7 @@ def _import_lab_data(df, disease):
     missing_columns = [col for col in required_columns if col not in df.columns]
     
     if missing_columns:
-        errors.append(f"Missing required columns: {', '.join(missing_columns)}")
+        errors.append(f"Missing required columns: {', '.join(missing_columns)}. Found columns: {', '.join(df.columns)}")
         return errors
     
     # Import data
@@ -150,7 +150,7 @@ def _import_pharmacy_data(df):
     missing_columns = [col for col in required_columns if col not in df.columns]
     
     if missing_columns:
-        errors.append(f"Missing required columns: {', '.join(missing_columns)}")
+        errors.append(f"Missing required columns: {', '.join(missing_columns)}. Found columns: {', '.join(df.columns)}")
         return errors
     
     # Import data

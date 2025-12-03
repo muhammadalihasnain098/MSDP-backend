@@ -36,7 +36,11 @@ class DatasetViewSet(viewsets.ModelViewSet):
         dataset = serializer.save(uploaded_by=self.request.user)
         
         # Trigger async validation task
-        validate_dataset.delay(dataset.id)
+        try:
+            validate_dataset.delay(dataset.id)
+        except Exception as e:
+            # If task queueing fails, log but don't crash
+            print(f"Failed to queue validation task: {e}")
     
     @action(detail=True, methods=['post'])
     def revalidate(self, request, pk=None):
