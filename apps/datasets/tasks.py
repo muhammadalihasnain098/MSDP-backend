@@ -10,9 +10,24 @@ For learning:
 """
 
 from celery import shared_task
-import pandas as pd
 from datetime import datetime
-from .models import Dataset, LabTest, PharmacySales
+
+
+@shared_task
+def validate_dataset(dataset_id):
+    """
+    Validate and import uploaded dataset
+    
+    This task:
+    1. Reads the uploaded file
+    2. Checks for required columns
+    3. Validates data types
+    4. Imports data into LabTest or PharmacySales
+    5. Updates dataset status
+    """
+    # Import here to avoid issues with Django app loading
+    import pandas as pd
+    from .models import Dataset, LabTest, PharmacySales
 
 
 @shared_task
@@ -94,6 +109,7 @@ def validate_dataset(dataset_id):
 
 def _import_lab_data(df, disease):
     """Import lab test data from DataFrame"""
+    from .models import LabTest
     errors = []
     
     # Check required columns
@@ -138,6 +154,7 @@ def _import_lab_data(df, disease):
 
 def _import_pharmacy_data(df):
     """Import pharmacy sales data from DataFrame"""
+    from .models import PharmacySales
     errors = []
     
     # Check required columns
