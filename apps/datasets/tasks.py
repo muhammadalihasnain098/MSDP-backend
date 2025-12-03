@@ -28,20 +28,7 @@ def validate_dataset(dataset_id):
     # Import here to avoid issues with Django app loading
     import pandas as pd
     from .models import Dataset, LabTest, PharmacySales
-
-
-@shared_task
-def validate_dataset(dataset_id):
-    """
-    Validate and import uploaded dataset
     
-    This task:
-    1. Reads the uploaded file
-    2. Checks for required columns
-    3. Validates data types
-    4. Imports data into LabTest or PharmacySales
-    5. Updates dataset status
-    """
     try:
         dataset = Dataset.objects.get(id=dataset_id)
         dataset.status = 'VALIDATING'
@@ -98,7 +85,8 @@ def validate_dataset(dataset_id):
         return {'status': 'success', 'dataset_id': dataset_id, 'rows_imported': len(df)}
     
     except Exception as e:
-        # Handle errors
+        # Handle errors - reimport in case of error
+        from .models import Dataset
         dataset = Dataset.objects.get(id=dataset_id)
         dataset.status = 'INVALID'
         dataset.validation_errors = {'errors': [str(e)]}
