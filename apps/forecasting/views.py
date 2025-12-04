@@ -209,6 +209,109 @@ class TrainingSessionViewSet(viewsets.ViewSet):
             'trained_at', 'created_at'
         )
         return Response(list(sessions))
+    
+    @action(detail=False, methods=['post'])
+    def generate_forecasts_from_existing_model(self, request):
+        """
+        Generate forecasts using existing trained model
+        
+        POST /api/forecasting/training-sessions/generate_forecasts_from_existing_model/
+        {
+            "disease": "DENGUE",
+            "forecast_start_date": "2025-01-01",
+            "forecast_end_date": "2025-01-30"
+        }
+        """
+        from .ml_models import load_model, generate_dengue_forecast, generate_malaria_forecast
+        from django.db import transaction
+        import pandas as pd
+        
+        disease = request.data.get('disease')
+        forecast_start = request.data.get('forecast_start_date')
+        forecast_end = request.data.get('forecast_end_date')
+        
+        print(f"==== GENERATE FORECASTS FROM EXISTING MODEL ====")
+        print(f"Disease: {disease}, Forecast: {forecast_start} to {forecast_end}")
+        
+        try:
+            # Load existing model
+            print(f"Loading existing {disease} model...")
+            model_data = load_model(disease)
+            regressor = model_data['regressor']
+            feature_cols = model_data['feature_cols']
+            
+            print(f"Model loaded successfully. Features: {feature_cols}")
+            
+            # Generate forecasts
+            print(f"Generating forecasts...")
+            if disease == 'DENGUE':
+                forecasts_df, mae = generate_dengue_forecast(
+                    regressor, feature_cols, forecast_start, forecast_end
+                )
+            elif disease == 'MALARIA':
+                forecasts_df, mae = generate_malaria_forecast(
+                    regressor, feature_cols, forecast_start, forecast_end
+                )
+            else:
+                return Response({'error': f'Unknown disease: {disease}'}, status=400)
+            
+            print(f"Generated {len(forecasts_df)} forecasts")
+            print(f"Forecast DataFrame:\n{forecasts_df.head()}")
+            
+            # Get or create forecast model record
+            forecast_model, _ = ForecastModel.objects.get_or_create(
+                name=f'{disease.lower()}_model',
+                version='1.0',
+                defaults={
+                    'algorithm': 'RandomForest',
+                    'disease': disease,
+                    'status': 'TRAINED',
+                }
+            )
+            
+            # Save forecasts to database
+            forecast_count = 0
+            with transaction.atomic():
+                # Clear old forecasts for this disease
+                deleted_count = Forecast.objects.filter(disease=disease).delete()[0]
+                print(f"Deleted {deleted_count} old forecasts for {disease}")
+                
+                for idx, row in forecasts_df.iterrows():
+                    Forecast.objects.create(
+                        model=forecast_model,
+                        disease=disease,
+                        region='Pakistan',
+                        forecast_date=row['date'],
+                        predicted_cases=int(row['predicted_tests']),
+                        actual_cases=int(row['actual_tests']) if (pd.notna(row['actual_tests']) and row['actual_tests'] != -1) else None,
+                        confidence_interval={},
+                        metadata={'mae': mae} if mae else {},
+                        created_by=request.user
+                    )
+                    forecast_count += 1
+            
+            print(f"Successfully saved {forecast_count} forecasts to database")
+            
+            # Verify
+            saved_count = Forecast.objects.filter(disease=disease).count()
+            print(f"Verification: {saved_count} forecasts in database for {disease}")
+            
+            return Response({
+                'status': 'success',
+                'disease': disease,
+                'forecasts_generated': forecast_count,
+                'forecasts_in_db': saved_count,
+                'forecast_range': f'{forecast_start} to {forecast_end}'
+            })
+            
+        except Exception as e:
+            print(f"Error generating forecasts: {e}")
+            import traceback
+            print(traceback.format_exc())
+            return Response({
+                'error': str(e),
+                'traceback': traceback.format_exc()
+            }, status=500)
 
 
 class ForecastViewSet(viewsets.ModelViewSet):
