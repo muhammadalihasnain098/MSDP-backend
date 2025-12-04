@@ -96,6 +96,7 @@ def train_custom_model(session_id):
         session.trained_at = timezone.now()
 
         # Generate forecasts
+        print(f"Starting forecast generation for {disease} from {forecast_start} to {forecast_end}")
         if disease == 'MALARIA':
             forecasts_df, forecast_mae = generate_malaria_forecast(
                 model, feature_cols, forecast_start, forecast_end
@@ -104,23 +105,33 @@ def train_custom_model(session_id):
             forecasts_df, forecast_mae = generate_dengue_forecast(
                 model, feature_cols, forecast_start, forecast_end
             )
+        
+        print(f"Forecast generation complete. Generated {len(forecasts_df)} forecasts")
+        print(f"Forecast DataFrame columns: {forecasts_df.columns.tolist()}")
+        print(f"First few forecasts:\n{forecasts_df.head()}")
 
         # Save forecasts to database
         forecast_count = 0
         for _, row in forecasts_df.iterrows():
-            Forecast.objects.create(
-                model=forecast_model,
-                training_session=session,
-                disease=disease,
-                region='Pakistan',
-                forecast_date=row['date'],
-                predicted_cases=int(row['predicted_tests']),
-                actual_cases=int(row['actual_tests']) if pd.notna(row['actual_tests']) else None,
-                confidence_interval={},
-                metadata={'forecast_mae': forecast_mae} if forecast_mae else {},
-                created_by=session.trained_by
-            )
-            forecast_count += 1
+            try:
+                Forecast.objects.create(
+                    model=forecast_model,
+                    training_session=session,
+                    disease=disease,
+                    region='Pakistan',
+                    forecast_date=row['date'],
+                    predicted_cases=int(row['predicted_tests']),
+                    actual_cases=int(row['actual_tests']) if pd.notna(row['actual_tests']) else None,
+                    confidence_interval={},
+                    metadata={'forecast_mae': forecast_mae} if forecast_mae else {},
+                    created_by=session.trained_by
+                )
+                forecast_count += 1
+            except Exception as forecast_err:
+                print(f"Error saving forecast for {row['date']}: {forecast_err}")
+                continue
+        
+        print(f"Successfully saved {forecast_count} forecasts to database")
 
         # Update session status
         session.status = 'COMPLETED'
