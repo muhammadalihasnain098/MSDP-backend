@@ -37,8 +37,10 @@ def train_custom_model(session_id):
     This task runs in the background via Celery, allowing the user
     to continue working while training completes.
     """
+    print(f"==== TRAIN_CUSTOM_MODEL TASK STARTED for session_id={session_id} ====")
     try:
         session = TrainingSession.objects.get(id=session_id)
+        print(f"Session found: disease={session.disease}, status={session.status}")
 
         # Update status to TRAINING
         session.status = 'TRAINING'
@@ -50,6 +52,8 @@ def train_custom_model(session_id):
         training_end = session.training_end_date.strftime('%Y-%m-%d')
         forecast_start = session.forecast_start_date.strftime('%Y-%m-%d')
         forecast_end = session.forecast_end_date.strftime('%Y-%m-%d')
+
+        print(f"Training parameters: disease={disease}, train={training_start} to {training_end}, forecast={forecast_start} to {forecast_end}")
 
         # Train the model with custom dates
         if disease == 'MALARIA':
@@ -68,6 +72,8 @@ def train_custom_model(session_id):
             )
         else:
             raise ValueError(f'Unknown disease: {disease}')
+
+        print(f"Model training complete! Metrics: {metrics}")
 
         # Save model to registry
         model_name = f'{disease.lower()}_model_custom_{session.id}'

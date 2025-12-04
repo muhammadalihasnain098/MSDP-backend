@@ -222,6 +222,12 @@ class ForecastViewSet(viewsets.ModelViewSet):
         print(f"Forecast list requested - disease filter: {disease_filter}")
         print(f"Total forecasts in DB: {Forecast.objects.count()}")
         
+        # Also check what training data we have
+        from apps.datasets.models import LabTest, PharmacySales
+        lab_count = LabTest.objects.count()
+        pharmacy_count = PharmacySales.objects.count()
+        print(f"Training data available: LabTest={lab_count}, PharmacySales={pharmacy_count}")
+        
         if disease_filter:
             count = Forecast.objects.filter(disease=disease_filter).count()
             print(f"Forecasts for {disease_filter}: {count}")
