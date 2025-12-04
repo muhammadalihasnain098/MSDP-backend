@@ -14,6 +14,7 @@ from celery import shared_task
 import pandas as pd
 from datetime import datetime, timedelta
 from django.utils import timezone
+from django.db import transaction
 import traceback
 
 from .models import ForecastModel, Forecast, TrainingSession
@@ -116,28 +117,58 @@ def train_custom_model(session_id):
         print(f"Forecast DataFrame columns: {forecasts_df.columns.tolist()}")
         print(f"First few forecasts:\n{forecasts_df.head()}")
 
-        # Save forecasts to database
+        # Save forecasts to database with transaction
         forecast_count = 0
-        for _, row in forecasts_df.iterrows():
-            try:
-                Forecast.objects.create(
-                    model=forecast_model,
-                    training_session=session,
-                    disease=disease,
-                    region='Pakistan',
-                    forecast_date=row['date'],
-                    predicted_cases=int(row['predicted_tests']),
-                    actual_cases=int(row['actual_tests']) if pd.notna(row['actual_tests']) else None,
-                    confidence_interval={},
-                    metadata={'forecast_mae': forecast_mae} if forecast_mae else {},
-                    created_by=session.trained_by
-                )
-                forecast_count += 1
-            except Exception as forecast_err:
-                print(f"Error saving forecast for {row['date']}: {forecast_err}")
-                continue
+        errors = []
+        
+        print(f"Attempting to save {len(forecasts_df)} forecasts to database...")
+        
+        with transaction.atomic():
+            for idx, row in forecasts_df.iterrows():
+                try:
+                    # Prepare forecast data
+                    forecast_data = {
+                        'model': forecast_model,
+                        'training_session': session,
+                        'disease': disease,
+                        'region': 'Pakistan',
+                        'forecast_date': row['date'],
+                        'predicted_cases': int(row['predicted_tests']),
+                        'actual_cases': int(row['actual_tests']) if (pd.notna(row['actual_tests']) and row['actual_tests'] != -1) else None,
+                        'confidence_interval': {},
+                        'metadata': {'forecast_mae': forecast_mae} if forecast_mae else {},
+                        'created_by': session.trained_by
+                    }
+                    
+                    print(f"Saving forecast #{idx + 1}: date={forecast_data['forecast_date']}, predicted={forecast_data['predicted_cases']}, actual={forecast_data['actual_cases']}")
+                    
+                    Forecast.objects.create(**forecast_data)
+                    forecast_count += 1
+                    
+                except Exception as forecast_err:
+                    error_msg = f"Error saving forecast #{idx + 1} for {row['date']}: {forecast_err}"
+                    print(error_msg)
+                    print(f"Traceback: {traceback.format_exc()}")
+                    errors.append(error_msg)
+                    # Don't continue - let transaction rollback
+                    raise
         
         print(f"Successfully saved {forecast_count} forecasts to database")
+        
+        if errors:
+            print(f"Encountered {len(errors)} errors during forecast saving:")
+            for err in errors:
+                print(f"  - {err}")
+
+        # Verify forecasts were saved
+        saved_count = Forecast.objects.filter(training_session=session).count()
+        print(f"Verification: {saved_count} forecasts found in database for session {session.id}")
+        
+        if saved_count == 0:
+            print("WARNING: No forecasts were saved to database!")
+            print("Checking if there are ANY forecasts in the database...")
+            total_forecasts = Forecast.objects.count()
+            print(f"Total forecasts in database: {total_forecasts}")
 
         # Update session status
         session.status = 'COMPLETED'
