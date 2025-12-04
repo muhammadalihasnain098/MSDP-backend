@@ -125,6 +125,9 @@ class TrainingSessionViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
     
     def create(self, request):
+        print(f"==== TRAINING SESSION CREATE REQUEST ====")
+        print(f"Request data: {request.data}")
+        
         data = request.data
         
         disease = data.get('disease')
@@ -132,6 +135,8 @@ class TrainingSessionViewSet(viewsets.ViewSet):
         training_end = datetime.strptime(data.get('training_end_date'), '%Y-%m-%d').date()
         forecast_start = datetime.strptime(data.get('forecast_start_date'), '%Y-%m-%d').date()
         forecast_end = datetime.strptime(data.get('forecast_end_date'), '%Y-%m-%d').date()
+        
+        print(f"Parsed dates: disease={disease}, train={training_start} to {training_end}, forecast={forecast_start} to {forecast_end}")
         
         # Validation 1: Training dates must be sequential
         if training_start >= training_end:
@@ -170,8 +175,12 @@ class TrainingSessionViewSet(viewsets.ViewSet):
             status='PENDING'
         )
         
+        print(f"Training session created: id={session.id}, status={session.status}")
+        
         # Trigger async training task with Celery
+        print(f"Triggering train_custom_model.delay({session.id})")
         task = train_custom_model.delay(session.id)
+        print(f"Task triggered: task_id={task.id}")
         
         return Response({
             'id': session.id,
