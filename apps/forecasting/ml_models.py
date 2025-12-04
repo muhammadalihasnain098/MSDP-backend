@@ -357,6 +357,31 @@ def generate_malaria_forecast(rf_regressor, feature_cols, start_date, end_date):
     # Feature engineering
     df_features = create_initial_features_malaria(df_master, FEATURES_TO_LAG, LAGS)
     
+    # EXTENDED: Generate future dates if forecast extends beyond available data
+    max_date_in_data = df_features['date'].max()
+    start_date_dt = pd.to_datetime(start_date)
+    end_date_dt = pd.to_datetime(end_date)
+    
+    if end_date_dt > max_date_in_data:
+        # Create date range for future dates
+        future_dates = pd.date_range(start=max_date_in_data + pd.Timedelta(days=1), end=end_date_dt, freq='D')
+        
+        # Create empty rows for future dates
+        future_rows = pd.DataFrame({
+            'date': future_dates,
+            'positive_tests': np.nan
+        })
+        
+        # Add placeholder columns for features (will be filled recursively)
+        for col in df_features.columns:
+            if col not in future_rows.columns:
+                future_rows[col] = np.nan
+        
+        # Append future dates to features
+        df_features = pd.concat([df_features, future_rows], ignore_index=True)
+        df_features.sort_values('date', inplace=True)
+        df_features.reset_index(drop=True, inplace=True)
+    
     # Get training data for peak detection
     df_train_base = df_features[df_features['date'] <= TRAIN_END_DATE].copy()
     df_train_base['peak_day'] = (df_train_base['positive_tests'].shift(1) > PEAK_TESTS_THRESHOLD).astype(int)
@@ -369,7 +394,7 @@ def generate_malaria_forecast(rf_regressor, feature_cols, start_date, end_date):
     
     # Prediction set
     df_predict = df_features[
-        (df_features['date'] >= start_date) & (df_features['date'] <= end_date)
+        (df_features['date'] >= start_date_dt) & (df_features['date'] <= end_date_dt)
     ].copy()
     df_predict['peak_cycle_predictor'] = 0
     
@@ -449,9 +474,34 @@ def generate_dengue_forecast(rf_regressor, feature_cols, start_date, end_date):
     # Feature engineering
     df_features = create_features_with_current_sales_dengue(df_master, FEATURES_TO_LAG, LAGS)
     
+    # EXTENDED: Generate future dates if forecast extends beyond available data
+    max_date_in_data = df_features['date'].max()
+    start_date_dt = pd.to_datetime(start_date)
+    end_date_dt = pd.to_datetime(end_date)
+    
+    if end_date_dt > max_date_in_data:
+        # Create date range for future dates
+        future_dates = pd.date_range(start=max_date_in_data + pd.Timedelta(days=1), end=end_date_dt, freq='D')
+        
+        # Create empty rows for future dates
+        future_rows = pd.DataFrame({
+            'date': future_dates,
+            'positive_tests': np.nan
+        })
+        
+        # Add placeholder columns for features (will be filled recursively)
+        for col in df_features.columns:
+            if col not in future_rows.columns:
+                future_rows[col] = np.nan
+        
+        # Append future dates to features
+        df_features = pd.concat([df_features, future_rows], ignore_index=True)
+        df_features.sort_values('date', inplace=True)
+        df_features.reset_index(drop=True, inplace=True)
+    
     df_train = df_features[df_features['date'] <= TRAIN_END_DATE].copy()
     df_predict = df_features[
-        (df_features['date'] >= start_date) & (df_features['date'] <= end_date)
+        (df_features['date'] >= start_date_dt) & (df_features['date'] <= end_date_dt)
     ].copy()
     
     X_predict_base = df_predict[feature_cols].copy()
