@@ -214,6 +214,26 @@ class ForecastViewSet(viewsets.ModelViewSet):
     ordering_fields = ['forecast_date', 'created_at']
     ordering = ['-forecast_date']
     
+    def list(self, request, *args, **kwargs):
+        """Override list to add debug logging"""
+        disease_filter = request.query_params.get('disease')
+        
+        # Log what's being requested
+        print(f"Forecast list requested - disease filter: {disease_filter}")
+        print(f"Total forecasts in DB: {Forecast.objects.count()}")
+        
+        if disease_filter:
+            count = Forecast.objects.filter(disease=disease_filter).count()
+            print(f"Forecasts for {disease_filter}: {count}")
+            
+            # Show sample forecasts
+            sample = Forecast.objects.filter(disease=disease_filter)[:5].values(
+                'id', 'disease', 'forecast_date', 'predicted_cases', 'created_at'
+            )
+            print(f"Sample forecasts: {list(sample)}")
+        
+        return super().list(request, *args, **kwargs)
+    
     def perform_create(self, serializer):
         """Save forecast and trigger generation"""
         forecast = serializer.save(created_by=self.request.user)
