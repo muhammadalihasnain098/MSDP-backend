@@ -177,19 +177,28 @@ class TrainingSessionViewSet(viewsets.ViewSet):
         
         print(f"Training session created: id={session.id}, status={session.status}")
         
-        # Trigger async training task with Celery
-        print(f"Triggering train_custom_model.delay({session.id})")
-        task = train_custom_model.delay(session.id)
-        print(f"Task triggered: task_id={task.id}")
+        # TEMPORARY: Run task directly instead of via Celery to debug
+        print(f"Running train_custom_model DIRECTLY (not via Celery) for session {session.id}")
+        try:
+            result = train_custom_model(session.id)  # Call directly, not .delay()
+            print(f"Task completed successfully: {result}")
+        except Exception as task_error:
+            print(f"Task execution failed: {task_error}")
+            import traceback
+            print(f"Traceback: {traceback.format_exc()}")
+        
+        # # Trigger async training task with Celery
+        # print(f"Triggering train_custom_model.delay({session.id})")
+        # task = train_custom_model.delay(session.id)
+        # print(f"Task triggered: task_id={task.id}")
         
         return Response({
             'id': session.id,
-            'status': 'Training started in background',
-            'task_id': task.id,
+            'status': 'Training completed directly',
             'disease': disease,
             'training_range': f"{training_start} to {training_end}",
             'forecast_range': f"{forecast_start} to {forecast_end}",
-            'note': 'Training is running in background. Refresh training history to see progress.'
+            'note': 'Training executed directly (Celery bypassed for debugging). Check logs for results.'
         }, status=status.HTTP_201_CREATED)
     
     def list(self, request):
