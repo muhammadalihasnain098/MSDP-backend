@@ -70,38 +70,35 @@ class DataRangeView(viewsets.ViewSet):
     def list(self, request):
         disease = request.query_params.get('disease', 'MALARIA')
         
-        # Get lab test date range
-        lab_range = LabTest.objects.filter(disease=disease).aggregate(
-            start=Min('date'),
-            end=Max('date')
-        )
+        # Use the centralized function from ml_models
+        from .ml_models import get_available_date_ranges
         
-        # Get pharmacy sales date range
-        # Determine which medicines to query based on disease
-        if disease == 'MALARIA':
-            medicine_filter = {'medicine__in': ['Coartem', 'Fansidar']}
-        elif disease == 'DENGUE':
-            medicine_filter = {'medicine__in': ['Panadol', 'Calpol']}
-        else:
-            medicine_filter = {}
+        data_info = get_available_date_ranges(disease)
         
-        pharma_range = PharmacySales.objects.filter(**medicine_filter).aggregate(
-            start=Min('date'),
-            end=Max('date')
-        )
-        
-        # Calculate valid training range
-        training_start = max(lab_range['start'], pharma_range['start']) if lab_range['start'] and pharma_range['start'] else None
-        training_end = min(lab_range['end'], pharma_range['end']) if lab_range['end'] and pharma_range['end'] else None
+        if not data_info['available']:
+            return Response({
+                'disease': disease,
+                'available': False,
+                'error': data_info['error'],
+                'lab_test_start': data_info['lab_range']['min_date'],
+                'lab_test_end': data_info['lab_range']['max_date'],
+                'pharma_start': data_info['pharma_range']['min_date'],
+                'pharma_end': data_info['pharma_range']['max_date'],
+                'training_start': None,
+                'training_end': None,
+            })
         
         return Response({
             'disease': disease,
-            'lab_test_start': lab_range['start'],
-            'lab_test_end': lab_range['end'],
-            'pharma_start': pharma_range['start'],
-            'pharma_end': pharma_range['end'],
-            'training_start': training_start,
-            'training_end': training_end,
+            'available': True,
+            'lab_test_start': data_info['lab_range']['min_date'],
+            'lab_test_end': data_info['lab_range']['max_date'],
+            'pharma_start': data_info['pharma_range']['min_date'],
+            'pharma_end': data_info['pharma_range']['max_date'],
+            'training_start': data_info['min_date'],  # Effective start (after lagging)
+            'training_end': data_info['max_date'],    # Maximum forecast date
+            'medicines': data_info['medicines'],
+            'note': data_info['note']
         })
 
 
@@ -138,6 +135,27 @@ class TrainingSessionViewSet(viewsets.ViewSet):
         
         print(f"Parsed dates: disease={disease}, train={training_start} to {training_end}, forecast={forecast_start} to {forecast_end}")
         
+        # Validation 0: Check data availability
+        from .ml_models import get_available_date_ranges
+        data_info = get_available_date_ranges(disease)
+        
+        if not data_info['available']:
+            return Response(
+                {
+                    'error': data_info['error'],
+                    'details': {
+                        'lab_test_range': f"{data_info['lab_range']['min_date']} to {data_info['lab_range']['max_date']}" if data_info['lab_range']['min_date'] else 'No data',
+                        'pharmacy_range': f"{data_info['pharma_range']['min_date']} to {data_info['pharma_range']['max_date']}" if data_info['pharma_range']['min_date'] else 'No data'
+                    }
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        available_min = data_info['min_date']
+        available_max = data_info['max_date']
+        
+        print(f"Data available for {disease}: {available_min} to {available_max}")
+        
         # Validation 1: Training dates must be sequential
         if training_start >= training_end:
             return Response(
@@ -164,6 +182,40 @@ class TrainingSessionViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
+        # Validation 4: Training start must be within available data
+        if training_start < available_min:
+            return Response(
+                {
+                    'error': f'Training start date is too early. Available data starts from {available_min.strftime("%Y-%m-%d")}',
+                    'available_range': f'{available_min.strftime("%Y-%m-%d")} to {available_max.strftime("%Y-%m-%d")}',
+                    'requested': training_start.strftime('%Y-%m-%d')
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validation 5: Forecast end must not exceed available data (cannot predict beyond known data)
+        if forecast_end > available_max:
+            return Response(
+                {
+                    'error': f'Forecast end date exceeds available data. Maximum forecast date is {available_max.strftime("%Y-%m-%d")}',
+                    'available_range': f'{available_min.strftime("%Y-%m-%d")} to {available_max.strftime("%Y-%m-%d")}',
+                    'requested_forecast': f'{forecast_start.strftime("%Y-%m-%d")} to {forecast_end.strftime("%Y-%m-%d")}',
+                    'message': 'Please upload more recent pharmacy sales data to extend the forecast range.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validation 6: Training end must be within available data
+        if training_end > available_max:
+            return Response(
+                {
+                    'error': f'Training end date exceeds available data. Maximum date is {available_max.strftime("%Y-%m-%d")}',
+                    'available_range': f'{available_min.strftime("%Y-%m-%d")} to {available_max.strftime("%Y-%m-%d")}',
+                    'requested': training_end.strftime('%Y-%m-%d')
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
         # Create training session
         session = TrainingSession.objects.create(
             disease=disease,
@@ -176,6 +228,7 @@ class TrainingSessionViewSet(viewsets.ViewSet):
         )
         
         print(f"Training session created: id={session.id}, status={session.status}")
+        print(f"Validation passed. Data range OK: {available_min} to {available_max}")
         
         # TEMPORARY: Run task directly instead of via Celery to debug
         print(f"Running train_custom_model DIRECTLY (not via Celery) for session {session.id}")
@@ -198,6 +251,7 @@ class TrainingSessionViewSet(viewsets.ViewSet):
             'disease': disease,
             'training_range': f"{training_start} to {training_end}",
             'forecast_range': f"{forecast_start} to {forecast_end}",
+            'data_range': f"{available_min} to {available_max}",
             'note': 'Training executed directly (Celery bypassed for debugging). Check logs for results.'
         }, status=status.HTTP_201_CREATED)
     

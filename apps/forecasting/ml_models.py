@@ -25,6 +25,84 @@ from apps.datasets.models import LabTest, PharmacySales
 
 
 # ==============================================================================
+# DATA AVAILABILITY CHECK
+# ==============================================================================
+
+def get_available_date_ranges(disease):
+    """
+    Get available data date ranges for a disease.
+    Returns the intersection of lab test and pharmacy sales data.
+    
+    Args:
+        disease: Disease name (MALARIA, DENGUE, DIARRHOEA)
+        
+    Returns:
+        dict with min_date, max_date, and data availability info
+    """
+    from django.db.models import Min, Max
+    
+    # Get lab test date range
+    lab_range = LabTest.objects.filter(disease=disease).aggregate(
+        min_date=Min('date'),
+        max_date=Max('date')
+    )
+    
+    # Get pharmacy sales date range based on disease-specific medicines
+    if disease == 'MALARIA':
+        medicines = ['Coartem', 'Fansidar']
+    elif disease == 'DENGUE':
+        medicines = ['Panadol', 'Calpol']
+    elif disease == 'DIARRHOEA':
+        medicines = DIARRHOEA_MEDICINES
+    else:
+        raise ValueError(f"Unknown disease: {disease}")
+    
+    pharma_range = PharmacySales.objects.filter(
+        medicine__in=medicines
+    ).aggregate(
+        min_date=Min('date'),
+        max_date=Max('date')
+    )
+    
+    # Calculate intersection (both lab and pharma data must be available)
+    if not lab_range['min_date'] or not pharma_range['min_date']:
+        return {
+            'available': False,
+            'error': f'Insufficient data for {disease}. Please upload both lab test and pharmacy sales data.',
+            'lab_range': lab_range,
+            'pharma_range': pharma_range
+        }
+    
+    # The valid range is the intersection
+    min_date = max(lab_range['min_date'], pharma_range['min_date'])
+    max_date = min(lab_range['max_date'], pharma_range['max_date'])
+    
+    # Account for lagging (need 14 days of history before we can make predictions)
+    effective_min_date = min_date + pd.Timedelta(days=LAGS)
+    
+    if effective_min_date >= max_date:
+        return {
+            'available': False,
+            'error': f'Insufficient data for {disease}. Need at least {LAGS} days of overlapping data.',
+            'lab_range': lab_range,
+            'pharma_range': pharma_range,
+            'min_date': None,
+            'max_date': None
+        }
+    
+    return {
+        'available': True,
+        'disease': disease,
+        'min_date': effective_min_date,
+        'max_date': max_date,
+        'lab_range': lab_range,
+        'pharma_range': pharma_range,
+        'medicines': medicines,
+        'note': f'Forecast can be generated from {effective_min_date} to {max_date}'
+    }
+
+
+# ==============================================================================
 # CONSTANTS FROM NOTEBOOKS (DO NOT MODIFY)
 # ==============================================================================
 
