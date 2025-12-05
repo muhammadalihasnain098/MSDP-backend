@@ -281,8 +281,10 @@ def _import_pharmacy_data(df):
     if file_disease == 'UNKNOWN':
         errors.append("Warning: Could not classify file into any disease category (threshold: 2+ matching medicines required)")
     
-    # Import data
+    # Import data using bulk operations for performance
     imported_count = 0
+    records_to_create = []
+    batch_size = 500  # Process in batches
     
     for _, row in df.iterrows():
         try:
@@ -307,19 +309,43 @@ def _import_pharmacy_data(df):
             medicine_diseases = _detect_disease_from_medicine(medicine_name)
             medicine_disease = medicine_diseases[0] if medicine_diseases else 'UNKNOWN'
             
-            # Create or update PharmacySales record
-            PharmacySales.objects.update_or_create(
+            # Add to batch instead of immediate save
+            records_to_create.append(PharmacySales(
                 date=date_obj,
                 medicine=medicine_name,
-                defaults={
-                    'sale': sales_value,
-                    'disease_category': medicine_disease,
-                }
-            )
-            imported_count += 1
+                sale=sales_value,
+                disease_category=medicine_disease,
+            ))
+            
+            # Bulk create when batch is full
+            if len(records_to_create) >= batch_size:
+                # Delete existing records for these dates/medicines to avoid duplicates
+                dates_in_batch = [r.date for r in records_to_create]
+                medicines_in_batch = [r.medicine for r in records_to_create]
+                PharmacySales.objects.filter(
+                    date__in=dates_in_batch,
+                    medicine__in=medicines_in_batch
+                ).delete()
+                
+                # Bulk insert
+                PharmacySales.objects.bulk_create(records_to_create)
+                imported_count += len(records_to_create)
+                print(f"Imported batch: {imported_count} records so far...")
+                records_to_create = []
             
         except Exception as e:
             errors.append(f"Row error at {row.get(date_col, 'unknown date')}: {str(e)}")
+    
+    # Import remaining records
+    if records_to_create:
+        dates_in_batch = [r.date for r in records_to_create]
+        medicines_in_batch = [r.medicine for r in records_to_create]
+        PharmacySales.objects.filter(
+            date__in=dates_in_batch,
+            medicine__in=medicines_in_batch
+        ).delete()
+        PharmacySales.objects.bulk_create(records_to_create)
+        imported_count += len(records_to_create)
     
     if imported_count > 0:
         print(f"Imported {imported_count} pharmacy sales records for {file_disease} disease")

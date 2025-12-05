@@ -184,8 +184,14 @@ CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
 # File Upload Settings
 DATA_UPLOAD_MAX_MEMORY_SIZE = int(os.getenv('MAX_UPLOAD_SIZE', 10485760))  # 10MB default
 
-# Development: Run Celery tasks synchronously (no Redis needed)
-# Comment these out when you have Redis running for true async processing
-# Temporarily re-enabled due to Railway Redis connection issues
-CELERY_TASK_ALWAYS_EAGER = True
-CELERY_TASK_EAGER_PROPAGATES = False  # Don't propagate exceptions to prevent crashes
+# CRITICAL: Must use TRUE async Celery for large file processing
+# CELERY_TASK_ALWAYS_EAGER = True causes tasks to run in web worker (30s timeout)
+# Set to False to use actual Celery workers with Redis (no timeout)
+CELERY_TASK_ALWAYS_EAGER = False
+CELERY_TASK_EAGER_PROPAGATES = False
+
+# Task timeout settings for large file processing
+CELERY_TASK_SOFT_TIME_LIMIT = 300  # 5 minutes soft timeout (logs warning)
+CELERY_TASK_TIME_LIMIT = 600  # 10 minutes hard timeout (kills task)
+CELERYD_TASK_SOFT_TIME_LIMIT = 300
+CELERYD_TASK_TIME_LIMIT = 600
