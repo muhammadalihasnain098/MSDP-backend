@@ -107,14 +107,19 @@ def _validate_dataset_sync(dataset_id):
     4. Imports data into LabTest or PharmacySales
     5. Updates dataset status
     """
+    print(f"📊 Starting validation for dataset {dataset_id}")
+    
     # Import here to avoid issues with Django app loading
     import pandas as pd
     from .models import Dataset, LabTest, PharmacySales
     
     try:
         dataset = Dataset.objects.get(id=dataset_id)
+        print(f"📁 Found dataset: {dataset.name}")
+        
         dataset.status = 'VALIDATING'
         dataset.save()
+        print(f"🔄 Status set to VALIDATING")
         
         # Get metadata
         metadata = dataset.validation_errors or {}
@@ -360,4 +365,15 @@ def validate_dataset(dataset_id):
     This allows validation to be queued via Celery if needed.
     For immediate validation, use _validate_dataset_sync() instead.
     """
-    return _validate_dataset_sync(dataset_id)
+    print(f"🚀 CELERY WORKER STARTED PROCESSING DATASET {dataset_id}")
+    print(f"⚙️ Worker PID: {__import__('os').getpid()}")
+    
+    try:
+        result = _validate_dataset_sync(dataset_id)
+        print(f"✅ CELERY WORKER COMPLETED DATASET {dataset_id}")
+        return result
+    except Exception as e:
+        print(f"❌ CELERY WORKER FAILED FOR DATASET {dataset_id}: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        raise
