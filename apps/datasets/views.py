@@ -43,11 +43,11 @@ class DatasetViewSet(viewsets.ModelViewSet):
             metadata = dataset.validation_errors or {}
             print(f"Type: {metadata.get('dataset_type', 'UNKNOWN')}, Disease: {metadata.get('disease', 'UNKNOWN')}")
             
-            # Import the actual validation function (not the Celery task)
-            from .tasks import validate_dataset as validate_dataset_task
+            # Import and call validation function directly (bypasses Celery completely)
+            from .tasks import _validate_dataset_sync
             
-            # Call it directly - this is synchronous
-            result = validate_dataset_task(dataset.id)
+            # Call synchronous version - no Celery involved
+            result = _validate_dataset_sync(dataset.id)
             
             print(f"==== VALIDATION COMPLETED ====")
             print(f"Result: {result}")

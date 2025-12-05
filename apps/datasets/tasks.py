@@ -14,14 +14,16 @@ from datetime import datetime
 
 
 # Disease-Medicine Mapping
+# CRITICAL: No overlapping medicines between diseases!
+# Each medicine should map to exactly ONE disease category
 DISEASE_MEDICINE_MAP = {
     'DENGUE': [
         'Panadol', 'Calpol', 'Febrol', 'Disprol', 'Relifal', 'Plasaline', 
         'Medisol', 'Medilact-D', 'Hartmann\'s Solution', 'Lensaline', 
-        'Dextrone-40', 'ORS (Oral Rehydration Salts)', 'Vitamin C Tablets', 
-        'Folic Acid Tablets', 'Platelet Transfusion', 'Paracetamol (Panadol, Calpol, Febrol)'
+        'Dextrone-40', 'Vitamin C Tablets', 'Folic Acid Tablets', 
+        'Platelet Transfusion'
     ],
-    'ANTIMALARIA': [
+    'MALARIA': [
         'Bassoquin', 'Amdaquin', 'Amoquine', 'Unesoquine', 'Fansidar', 
         'Geridar', 'Neosidar', 'Sulfadar', 'Fantar DS', 'One-3 Syrup', 
         'Artheget', 'Gen-M', 'Mosquinet', 'Coartem'
@@ -31,12 +33,12 @@ DISEASE_MEDICINE_MAP = {
         'Paedi Care ORS (Strawberry)', 'Werisol ORS Powder', 'Rehydro ORS (Orange)',
         'BL BioLyte ORS (Lemon)', 'ORS (GSK)', 'Chloramphenicol (Irza)',
         'Doxycycline (Cherdox)', 'Tetracycline HCl', 'Azithromycin (Zithrocin)',
-        'Ciprofloxacin (Ciproxin)', 'Zincat', 'ORS Liquid (Care ORS)'
+        'Ciprofloxacin (Ciproxin)', 'ORS Liquid (Care ORS)'
     ],
     'DIARRHOEA': [
-        'Pedialyte,', 'ORS-L,', 'Hydro,', 'Zincolak,', 'Zincat,', 
-        'Enterogermina,', 'Lacteol Fort,', 'Vomil-S,', 'Hidrasec,', 
-        'Rotarix,', 'RotaTeq,', 'Calpol,', 'Panadol,', 'Flagyl,', 'Bifilac'
+        'Pedialyte', 'ORS-L', 'Hydro', 'Zincolak', 'Zincat', 
+        'Enterogermina', 'Lacteol Fort', 'Vomil-S', 'Hidrasec', 
+        'Rotarix', 'RotaTeq', 'Flagyl', 'Bifilac', 'ORS Sachet'
     ]
 }
 
@@ -44,17 +46,16 @@ DISEASE_MEDICINE_MAP = {
 def _detect_disease_from_medicine(medicine_name):
     """
     Detect which disease(s) a medicine treats by matching against the mapping.
+    Uses EXACT case-insensitive matching to prevent false positives.
     Returns a list of diseases.
     """
-    medicine_name_lower = medicine_name.lower().strip()
+    medicine_name_clean = medicine_name.lower().strip()
     detected_diseases = []
     
     for disease, medicines in DISEASE_MEDICINE_MAP.items():
         for med in medicines:
-            # Check if medicine name contains the mapped medicine or vice versa
-            if (medicine_name_lower in med.lower() or 
-                med.lower() in medicine_name_lower or
-                medicine_name_lower == med.lower()):
+            # EXACT match only (case-insensitive)
+            if medicine_name_clean == med.lower().strip():
                 detected_diseases.append(disease)
                 break
     
@@ -93,12 +94,12 @@ def _analyze_pharmacy_file_disease(df, medicine_col):
     return 'UNKNOWN'
 
 
-@shared_task
-def validate_dataset(dataset_id):
+def _validate_dataset_sync(dataset_id):
     """
-    Validate and import uploaded dataset
+    SYNCHRONOUS validation function - no Celery, runs immediately in current thread.
+    Used when called from API views to ensure instant feedback.
     
-    This task:
+    This function:
     1. Reads the uploaded file
     2. Checks for required columns
     3. Validates data types
@@ -323,3 +324,13 @@ def _import_pharmacy_data(df):
         print(f"Imported {imported_count} pharmacy sales records for {file_disease} disease")
     
     return errors
+
+
+@shared_task
+def validate_dataset(dataset_id):
+    """
+    Celery task wrapper for dataset validation.
+    This allows validation to be queued via Celery if needed.
+    For immediate validation, use _validate_dataset_sync() instead.
+    """
+    return _validate_dataset_sync(dataset_id)
