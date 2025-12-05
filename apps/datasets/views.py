@@ -34,13 +34,47 @@ class DatasetViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         """Save dataset and trigger validation task"""
         dataset = serializer.save(uploaded_by=self.request.user)
-        
-        # Trigger async validation task
+
+        # Run validation SYNCHRONOUSLY (not via Celery)
+        # This ensures immediate feedback and no stuck "Validating" status
         try:
-            validate_dataset.delay(dataset.id)
+            print(f"==== STARTING DATASET VALIDATION FOR DATASET {dataset.id} ====")
+            print(f"Dataset: {dataset.name}")
+            metadata = dataset.validation_errors or {}
+            print(f"Type: {metadata.get('dataset_type', 'UNKNOWN')}, Disease: {metadata.get('disease', 'UNKNOWN')}")
+            
+            # Import the actual validation function (not the Celery task)
+            from .tasks import validate_dataset as validate_dataset_task
+            
+            # Call it directly - this is synchronous
+            result = validate_dataset_task(dataset.id)
+            
+            print(f"==== VALIDATION COMPLETED ====")
+            print(f"Result: {result}")
+            
+            # Refresh dataset from database to get updated status
+            dataset.refresh_from_db()
+            print(f"Final dataset status: {dataset.status}")
+            
+            if dataset.status == 'INVALID':
+                print(f"Validation errors: {dataset.validation_errors}")
+            elif dataset.status == 'PROCESSED':
+                print(f"Successfully imported {dataset.row_count} rows, {dataset.column_count} columns")
+                
         except Exception as e:
-            # If task queueing fails, log but don't crash
-            print(f"Failed to queue validation task: {e}")
+            # Log the full error
+            print(f"==== VALIDATION TASK FAILED ====")
+            print(f"Error: {str(e)}")
+            import traceback
+            print(f"Traceback: {traceback.format_exc()}")
+            
+            # Update dataset status to show error
+            dataset.status = 'INVALID'
+            dataset.validation_errors = {
+                'errors': [f'Validation task failed: {str(e)}']
+            }
+            dataset.save()
+            raise
     
     @action(detail=True, methods=['post'])
     def revalidate(self, request, pk=None):
