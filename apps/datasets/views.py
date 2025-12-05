@@ -35,31 +35,24 @@ class DatasetViewSet(viewsets.ModelViewSet):
         """Save dataset and trigger validation task"""
         dataset = serializer.save(uploaded_by=self.request.user)
 
-        # Run validation SYNCHRONOUSLY (not via Celery)
-        # This ensures immediate feedback and no stuck "Validating" status
+        # Queue validation via Celery (async - prevents worker timeout)
+        # Large files take 30+ seconds to process, must run in background
         try:
-            print(f"==== STARTING DATASET VALIDATION FOR DATASET {dataset.id} ====")
+            print(f"==== QUEUING DATASET VALIDATION FOR DATASET {dataset.id} ====")
             print(f"Dataset: {dataset.name}")
             metadata = dataset.validation_errors or {}
             print(f"Type: {metadata.get('dataset_type', 'UNKNOWN')}, Disease: {metadata.get('disease', 'UNKNOWN')}")
             
-            # Import and call validation function directly (bypasses Celery completely)
-            from .tasks import _validate_dataset_sync
+            # Import Celery task
+            from .tasks import validate_dataset
             
-            # Call synchronous version - no Celery involved
-            result = _validate_dataset_sync(dataset.id)
+            # Queue task asynchronously - returns immediately
+            task = validate_dataset.delay(dataset.id)
+            print(f"Validation task queued with ID: {task.id}")
             
-            print(f"==== VALIDATION COMPLETED ====")
-            print(f"Result: {result}")
-            
-            # Refresh dataset from database to get updated status
-            dataset.refresh_from_db()
-            print(f"Final dataset status: {dataset.status}")
-            
-            if dataset.status == 'INVALID':
-                print(f"Validation errors: {dataset.validation_errors}")
-            elif dataset.status == 'PROCESSED':
-                print(f"Successfully imported {dataset.row_count} rows, {dataset.column_count} columns")
+            print(f"==== VALIDATION TASK QUEUED ====")
+            print(f"Task will process in background, check dataset status via API")
+            print(f"Dataset ID: {dataset.id}, Status: {dataset.status}")
                 
         except Exception as e:
             # Log the full error

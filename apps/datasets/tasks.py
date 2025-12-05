@@ -29,16 +29,17 @@ DISEASE_MEDICINE_MAP = {
         'Artheget', 'Gen-M', 'Mosquinet', 'Coartem'
     ],
     'CHOLERA': [
-        'Biolyte ORS Sachet', 'Rediplex ORS Sachet', 'Paedi Care ORS (Lemon)',
-        'Paedi Care ORS (Strawberry)', 'Werisol ORS Powder', 'Rehydro ORS (Orange)',
-        'BL BioLyte ORS (Lemon)', 'ORS (GSK)', 'Chloramphenicol (Irza)',
-        'Doxycycline (Cherdox)', 'Tetracycline HCl', 'Azithromycin (Zithrocin)',
-        'Ciprofloxacin (Ciproxin)', 'ORS Liquid (Care ORS)'
+        'Chloramphenicol (Irza)', 'Doxycycline (Cherdox)', 
+        'Tetracycline HCl', 'Azithromycin (Zithrocin)',
+        'Ciprofloxacin (Ciproxin)'
     ],
     'DIARRHOEA': [
         'Pedialyte', 'ORS-L', 'Hydro', 'Zincolak', 'Zincat', 
         'Enterogermina', 'Lacteol Fort', 'Vomil-S', 'Hidrasec', 
-        'Rotarix', 'RotaTeq', 'Flagyl', 'Bifilac', 'ORS Sachet'
+        'Rotarix', 'RotaTeq', 'Flagyl', 'Bifilac', 'ORS Sachet',
+        'Biolyte ORS Sachet', 'Rediplex ORS Sachet', 'Paedi Care ORS (Lemon)',
+        'Paedi Care ORS (Strawberry)', 'Werisol ORS Powder', 'Rehydro ORS (Orange)',
+        'BL BioLyte ORS (Lemon)', 'ORS (GSK)', 'ORS Liquid (Care ORS)'
     ]
 }
 

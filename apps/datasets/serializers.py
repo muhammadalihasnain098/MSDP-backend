@@ -28,7 +28,7 @@ class DatasetUploadSerializer(serializers.ModelSerializer):
     """Serializer for uploading datasets"""
     
     dataset_type = serializers.ChoiceField(choices=['LAB', 'PHARMACY'], write_only=True)
-    disease = serializers.ChoiceField(choices=['MALARIA', 'DENGUE'], write_only=True)
+    disease = serializers.ChoiceField(choices=['MALARIA', 'DENGUE', 'DIARRHOEA'], write_only=True)
 
     class Meta:
         model = Dataset
