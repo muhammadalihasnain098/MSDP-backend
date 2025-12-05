@@ -470,16 +470,27 @@ def generate_dengue_forecast(rf_regressor, feature_cols, start_date, end_date, t
     df_master = load_dengue_data_from_django()
     FEATURES_TO_LAG = ['positive_tests', 'Panadol', 'Calpol']
     
+    print(f"DEBUG: df_master date range: {df_master['date'].min()} to {df_master['date'].max()}, shape: {df_master.shape}")
+    
     # Feature engineering
     df_features = create_features_with_current_sales_dengue(df_master, FEATURES_TO_LAG, LAGS)
+    
+    print(f"DEBUG: df_features date range after feature engineering: {df_features['date'].min()} to {df_features['date'].max()}, shape: {df_features.shape}")
+    print(f"DEBUG: Filtering for training: date <= {train_end_date}")
+    print(f"DEBUG: Filtering for prediction: {start_date} <= date <= {end_date}")
     
     df_train = df_features[df_features['date'] <= train_end_date].copy()
     df_predict = df_features[
         (df_features['date'] >= start_date) & (df_features['date'] <= end_date)
     ].copy()
     
+    print(f"DEBUG: df_train shape: {df_train.shape}, date range: {df_train['date'].min() if len(df_train) > 0 else 'EMPTY'} to {df_train['date'].max() if len(df_train) > 0 else 'EMPTY'}")
+    print(f"DEBUG: df_predict shape: {df_predict.shape}, date range: {df_predict['date'].min() if len(df_predict) > 0 else 'EMPTY'} to {df_predict['date'].max() if len(df_predict) > 0 else 'EMPTY'}")
+    
     X_predict_base = df_predict[feature_cols].copy()
     actual_values = df_predict[['date', 'positive_tests']].copy()
+    
+    print(f"DEBUG: actual_values to predict: {len(actual_values)} rows")
     
     # EXACT RECURSIVE PREDICTION LOOP FROM NOTEBOOK
     df_pred_results = actual_values.copy()
