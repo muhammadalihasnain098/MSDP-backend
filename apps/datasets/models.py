@@ -23,6 +23,7 @@ class LabTest(models.Model):
     DISEASE_CHOICES = [
         ('MALARIA', 'Malaria'),
         ('DENGUE', 'Dengue'),
+        ('DIARRHOEA', 'Diarrhoea'),
     ]
     
     date = models.DateField()

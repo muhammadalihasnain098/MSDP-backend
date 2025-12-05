@@ -2,8 +2,9 @@
 Machine Learning Models - EXACT CODE FROM JUPYTER NOTEBOOKS
 
 This file contains the EXACT training and prediction logic from:
-- model_1.ipynb (Malaria forecasting with Random Forest)
-- model_2.ipynb (Dengue forecasting with Random Forest + sales logic)
+- model_1.ipynb (Malaria forecasting with Random Forest + Peak Cycle Heuristic)
+- model_2.ipynb (Dengue forecasting with Random Forest + Sales Surge Detection)
+- model_3.ipynb (Diarrhoea forecasting with Random Forest + Ratio Logic)
 
 The only modifications are:
 1. CSV reads replaced with Django ORM queries
@@ -27,7 +28,7 @@ from apps.datasets.models import LabTest, PharmacySales
 # CONSTANTS FROM NOTEBOOKS (DO NOT MODIFY)
 # ==============================================================================
 
-# From model_1.ipynb and model_2.ipynb
+# From model_1.ipynb, model_2.ipynb, and model_3.ipynb
 LAGS = 14
 TRAIN_END_DATE = '2024-09-30'
 PREDICT_START_DATE = '2024-10-01'
@@ -36,6 +37,9 @@ PREDICT_END_DATE = '2024-12-31'
 # From model_1.ipynb Cell 1 (version with peak cycle heuristic)
 PEAK_TESTS_THRESHOLD = 100  # Threshold to define a peak day
 PEAK_CYCLE_THRESHOLD = 4    # 4-day cycle from 2024 surge data
+
+# From model_3.ipynb (Diarrhoea-specific medicines)
+DIARRHOEA_MEDICINES = ['Zincat', 'ORS Sachet']
 
 
 # ==============================================================================
@@ -343,13 +347,23 @@ def train_dengue_model(training_start=None, training_end=None, forecast_start=No
 # RECURSIVE PREDICTION FUNCTIONS
 # ==============================================================================
 
-def generate_malaria_forecast(rf_regressor, feature_cols, start_date, end_date):
+def generate_malaria_forecast(rf_regressor, feature_cols, start_date, end_date, training_end=None):
     """
     EXACT RECURSIVE PREDICTION LOGIC FROM model_1.ipynb Cell 1
     
     Generates malaria forecasts using the trained model.
     Implements the 4-day peak cycle heuristic.
+    
+    Args:
+        rf_regressor: Trained Random Forest model
+        feature_cols: List of feature column names
+        start_date: Forecast start date
+        end_date: Forecast end date  
+        training_end: End date of training period (replaces hardcoded TRAIN_END_DATE)
     """
+    # Use provided training_end or fallback to constant
+    train_end_date = training_end or TRAIN_END_DATE
+    
     # Load data
     df_master = load_malaria_data_from_django()
     FEATURES_TO_LAG = ['positive_tests', 'Coartem', 'Fansidar']
@@ -357,33 +371,8 @@ def generate_malaria_forecast(rf_regressor, feature_cols, start_date, end_date):
     # Feature engineering
     df_features = create_initial_features_malaria(df_master, FEATURES_TO_LAG, LAGS)
     
-    # EXTENDED: Generate future dates if forecast extends beyond available data
-    max_date_in_data = df_features['date'].max()
-    start_date_dt = pd.to_datetime(start_date)
-    end_date_dt = pd.to_datetime(end_date)
-    
-    if end_date_dt > max_date_in_data:
-        # Create date range for future dates
-        future_dates = pd.date_range(start=max_date_in_data + pd.Timedelta(days=1), end=end_date_dt, freq='D')
-        
-        # Create empty rows for future dates
-        future_rows = pd.DataFrame({
-            'date': future_dates,
-            'positive_tests': np.nan
-        })
-        
-        # Add placeholder columns for features (will be filled recursively)
-        for col in df_features.columns:
-            if col not in future_rows.columns:
-                future_rows[col] = np.nan
-        
-        # Append future dates to features
-        df_features = pd.concat([df_features, future_rows], ignore_index=True)
-        df_features.sort_values('date', inplace=True)
-        df_features.reset_index(drop=True, inplace=True)
-    
     # Get training data for peak detection
-    df_train_base = df_features[df_features['date'] <= TRAIN_END_DATE].copy()
+    df_train_base = df_features[df_features['date'] <= train_end_date].copy()
     df_train_base['peak_day'] = (df_train_base['positive_tests'].shift(1) > PEAK_TESTS_THRESHOLD).astype(int)
     peak_dates_train = df_train_base.loc[df_train_base['peak_day'] == 1, 'date']
     df_train_base['time_since_last_peak'] = df_train_base.apply(
@@ -394,7 +383,7 @@ def generate_malaria_forecast(rf_regressor, feature_cols, start_date, end_date):
     
     # Prediction set
     df_predict = df_features[
-        (df_features['date'] >= start_date_dt) & (df_features['date'] <= end_date_dt)
+        (df_features['date'] >= start_date) & (df_features['date'] <= end_date)
     ].copy()
     df_predict['peak_cycle_predictor'] = 0
     
@@ -410,7 +399,7 @@ def generate_malaria_forecast(rf_regressor, feature_cols, start_date, end_date):
     # Initialize tracking for heuristic: last actual peak date from training data
     df_lab_full = pd.DataFrame(list(LabTest.objects.filter(disease='MALARIA').values('date', 'positive_tests')))
     df_lab_full['date'] = pd.to_datetime(df_lab_full['date'])
-    last_peak_date = df_lab_full[df_lab_full['date'] <= TRAIN_END_DATE].loc[
+    last_peak_date = df_lab_full[df_lab_full['date'] <= train_end_date].loc[
         df_lab_full['positive_tests'] > PEAK_TESTS_THRESHOLD, 'date'
     ].max()
     
@@ -460,13 +449,23 @@ def generate_malaria_forecast(rf_regressor, feature_cols, start_date, end_date):
     return df_comp, mae
 
 
-def generate_dengue_forecast(rf_regressor, feature_cols, start_date, end_date):
+def generate_dengue_forecast(rf_regressor, feature_cols, start_date, end_date, training_end=None):
     """
     EXACT RECURSIVE PREDICTION LOGIC FROM model_2.ipynb Cell 1
     
     Generates dengue forecasts using the trained model.
     Implements the sales surge detection logic (2x if consecutive increases).
+    
+    Args:
+        rf_regressor: Trained Random Forest model
+        feature_cols: List of feature column names
+        start_date: Forecast start date
+        end_date: Forecast end date
+        training_end: End date of training period (replaces hardcoded TRAIN_END_DATE)
     """
+    # Use provided training_end or fallback to constant
+    train_end_date = training_end or TRAIN_END_DATE
+    
     # Load data
     df_master = load_dengue_data_from_django()
     FEATURES_TO_LAG = ['positive_tests', 'Panadol', 'Calpol']
@@ -474,34 +473,9 @@ def generate_dengue_forecast(rf_regressor, feature_cols, start_date, end_date):
     # Feature engineering
     df_features = create_features_with_current_sales_dengue(df_master, FEATURES_TO_LAG, LAGS)
     
-    # EXTENDED: Generate future dates if forecast extends beyond available data
-    max_date_in_data = df_features['date'].max()
-    start_date_dt = pd.to_datetime(start_date)
-    end_date_dt = pd.to_datetime(end_date)
-    
-    if end_date_dt > max_date_in_data:
-        # Create date range for future dates
-        future_dates = pd.date_range(start=max_date_in_data + pd.Timedelta(days=1), end=end_date_dt, freq='D')
-        
-        # Create empty rows for future dates
-        future_rows = pd.DataFrame({
-            'date': future_dates,
-            'positive_tests': np.nan
-        })
-        
-        # Add placeholder columns for features (will be filled recursively)
-        for col in df_features.columns:
-            if col not in future_rows.columns:
-                future_rows[col] = np.nan
-        
-        # Append future dates to features
-        df_features = pd.concat([df_features, future_rows], ignore_index=True)
-        df_features.sort_values('date', inplace=True)
-        df_features.reset_index(drop=True, inplace=True)
-    
-    df_train = df_features[df_features['date'] <= TRAIN_END_DATE].copy()
+    df_train = df_features[df_features['date'] <= train_end_date].copy()
     df_predict = df_features[
-        (df_features['date'] >= start_date_dt) & (df_features['date'] <= end_date_dt)
+        (df_features['date'] >= start_date) & (df_features['date'] <= end_date)
     ].copy()
     
     X_predict_base = df_predict[feature_cols].copy()
@@ -561,6 +535,281 @@ def generate_dengue_forecast(rf_regressor, feature_cols, start_date, end_date):
     if df_comp['actual_tests'].notna().any():
         df_comp['actual_tests'] = df_comp['actual_tests'].fillna(-1).astype(int)
 
+    return df_comp, mae
+
+
+# ==============================================================================
+# MODEL 3: DIARRHOEA FORECASTING
+# ==============================================================================
+# EXACT CODE FROM: model_3.ipynb (RF with Ratio Logic)
+# ==============================================================================
+
+def create_features_diarrhoea(df, features_to_lag, lags):
+    """
+    EXACT CODE FROM model_3.ipynb
+    Creates lagged and temporal features for the time series model.
+    """
+    df_feat = df.copy()
+    
+    # Create lagged features
+    for col in features_to_lag:
+        for lag in range(1, lags + 1):
+            if col == 'positive_tests':
+                df_feat[f'{col}_lag{lag}'] = np.log1p(df_feat[col]).shift(lag)
+            else:
+                df_feat[f'{col}_lag{lag}'] = df_feat[col].shift(lag)
+    
+    # Create rolling mean features for positive tests (lagged by 1 day)
+    df_feat['pos7'] = df_feat['positive_tests'].shift(1).rolling(window=7).mean()
+    df_feat['pos14'] = df_feat['positive_tests'].shift(1).rolling(window=14).mean()
+    
+    # Create temporal features
+    df_feat['dow'] = df_feat['date'].dt.dayofweek
+    df_feat['dom'] = df_feat['date'].dt.day
+    df_feat['month'] = df_feat['date'].dt.month
+    
+    # Target variable (log transformed)
+    df_feat['y'] = np.log1p(df_feat['positive_tests'])
+    
+    return df_feat
+
+
+def load_diarrhoea_data_from_django():
+    """
+    REPLACES: CSV loading from model_3.ipynb
+    NEW CODE: Loads data from Django ORM instead of CSV files
+    Returns df_master with same structure as notebook
+    """
+    # Load Lab Test Data (replaces: pd.read_csv('diarrhoea lab test.csv'))
+    lab_tests = LabTest.objects.filter(disease='DIARRHOEA').values('date', 'positive_tests')
+    df_lab = pd.DataFrame(list(lab_tests))
+    
+    if df_lab.empty:
+        raise ValueError("No DIARRHOEA lab test data found in database")
+    
+    df_lab['date'] = pd.to_datetime(df_lab['date'])
+    df_lab = df_lab[['date', 'positive_tests']]
+    
+    # Load Pharmacy Sales Data (replaces: pd.read_csv('y1.csv') + 'Jinnah Pharmacy 3.csv')
+    sales = PharmacySales.objects.filter(
+        medicine__in=DIARRHOEA_MEDICINES
+    ).values('date', 'medicine', 'sale')
+    df_sales = pd.DataFrame(list(sales))
+    
+    if df_sales.empty:
+        raise ValueError(f"No pharmacy sales data found for {DIARRHOEA_MEDICINES}")
+    
+    df_sales['date'] = pd.to_datetime(df_sales['date'])
+    
+    # Pivot to get columns for each medicine
+    df_sales_pivot = df_sales.pivot_table(
+        index='date', 
+        columns='medicine', 
+        values='sale', 
+        aggfunc='sum'
+    ).reset_index()
+    
+    # Ensure all required medicines are present
+    for med in DIARRHOEA_MEDICINES:
+        if med not in df_sales_pivot.columns:
+            df_sales_pivot[med] = 0
+    
+    df_sales_pivot = df_sales_pivot[['date'] + DIARRHOEA_MEDICINES]
+    df_sales_pivot.fillna(0, inplace=True)
+    
+    # Merge lab and sales data
+    df_master = pd.merge(df_lab, df_sales_pivot, on='date', how='inner')
+    df_master.sort_values('date', inplace=True)
+    df_master.reset_index(drop=True, inplace=True)
+    
+    # Calculate Total_Sales (required for ratio logic)
+    df_master['Total_Sales'] = df_master['Zincat'] + df_master['ORS Sachet']
+    
+    # Calculate 7-day rolling average of sales (required for ratio logic)
+    df_master['AvgSalesLag7'] = df_master['Total_Sales'].shift(1).rolling(window=7).mean()
+    
+    return df_master
+
+
+def train_diarrhoea_model(training_start, training_end):
+    """
+    EXACT CODE FROM model_3.ipynb
+    Trains Random Forest model for DIARRHOEA prediction.
+    
+    Args:
+        training_start: Start date for training period
+        training_end: End date for training period
+        
+    Returns:
+        - rf_regressor: Trained RandomForestRegressor
+        - feature_cols: List of feature column names
+        - metrics: Dictionary with MAE and other metrics
+    """
+    # Use provided training_end or fallback to constant
+    train_end_date = training_end or TRAIN_END_DATE
+    
+    # Load data
+    df_master = load_diarrhoea_data_from_django()
+    FEATURES_TO_LAG = ['positive_tests', 'Zincat', 'ORS Sachet']
+    
+    # Feature engineering
+    df_features = create_features_diarrhoea(df_master, FEATURES_TO_LAG, LAGS).dropna()
+    
+    # Training set
+    df_train = df_features[df_features['date'] <= train_end_date].copy()
+    
+    # Define feature columns
+    feature_cols = [
+        col for col in df_train.columns 
+        if col.startswith(('positive_tests_lag', 'Zincat_lag', 'ORS Sachet_lag', 'pos7', 'pos14', 'dow', 'dom', 'month'))
+    ]
+    feature_cols.extend(DIARRHOEA_MEDICINES)
+    
+    X_train = df_train[feature_cols]
+    y_train = df_train['y']
+    
+    # Train Random Forest (EXACT from notebook)
+    rf_regressor = RandomForestRegressor(n_estimators=300, random_state=42)
+    rf_regressor.fit(X_train, y_train)
+    
+    # Calculate training metrics
+    y_pred_train = rf_regressor.predict(X_train)
+    mae_train = mean_absolute_error(y_train, y_pred_train)
+    
+    metrics = {
+        'mae_train': mae_train,
+        'n_samples': len(X_train),
+        'n_features': len(feature_cols)
+    }
+    
+    return rf_regressor, feature_cols, metrics
+
+
+def generate_diarrhoea_forecast(rf_regressor, feature_cols, start_date, end_date, training_end=None):
+    """
+    EXACT CODE FROM model_3.ipynb
+    Generates DIARRHOEA forecasts using the trained model with RATIO LOGIC.
+    
+    This implements the "RF Final Ratio Logic" from model_3.ipynb:
+    - Ratio ≥ 2.0: multiply by 2.5
+    - Ratio < 0.75: multiply by 0.75 (with min 1 constraint)
+    - Otherwise: no change (1.0 multiplier)
+    
+    Args:
+        rf_regressor: Trained RandomForestRegressor
+        feature_cols: Feature column names from training
+        start_date: Start date for predictions (str or datetime)
+        end_date: End date for predictions (str or datetime)
+        training_end: End date of training period (replaces hardcoded TRAIN_END_DATE)
+    """
+    # Use provided training_end or fallback to constant
+    train_end_date = training_end or TRAIN_END_DATE
+    
+    # Load data
+    df_master = load_diarrhoea_data_from_django()
+    FEATURES_TO_LAG = ['positive_tests', 'Zincat', 'ORS Sachet']
+    
+    # Feature engineering
+    df_features = create_features_diarrhoea(df_master, FEATURES_TO_LAG, LAGS).dropna()
+    
+    # Prediction set
+    df_predict = df_features[
+        (df_features['date'] >= start_date) & (df_features['date'] <= end_date)
+    ].copy()
+    
+    X_predict_base = df_predict[feature_cols].copy()
+    actual_values = df_predict[['date', 'positive_tests']].copy()
+    
+    # EXACT RECURSIVE PREDICTION LOOP FROM NOTEBOOK
+    df_pred_results = actual_values.copy()
+    df_pred_results.set_index('date', inplace=True)
+    df_pred_results.rename(columns={'positive_tests': 'actual_tests'}, inplace=True)
+    df_pred_results['predicted_tests'] = np.nan
+    
+    # Lookup dictionaries for ratio logic
+    df_sales_lookup = df_master.set_index('date')['Total_Sales']
+    df_avg_sales_lookup = df_master.set_index('date')['AvgSalesLag7']
+    
+    X_predict_recursive = X_predict_base.copy()
+    
+    for i in range(len(df_pred_results)):
+        date_i = df_pred_results.index[i]
+        
+        # 1. Update lagged features for the current day based on previous predictions
+        if i > 0:
+            pred_val_yesterday = df_pred_results['predicted_tests'].iloc[i-1]
+            log_pred_yesterday = np.log1p(pred_val_yesterday)
+            
+            # Update positive_tests lags: shift all down
+            for lag in range(LAGS, 1, -1):
+                lag_col = f'positive_tests_lag{lag}'
+                lag_col_minus_1 = f'positive_tests_lag{lag-1}'
+                X_predict_recursive.loc[X_predict_recursive.index[i], lag_col] = \
+                    X_predict_recursive.loc[X_predict_recursive.index[i], lag_col_minus_1]
+            
+            # Set lag1 for today's features to yesterday's log prediction
+            X_predict_recursive.loc[X_predict_recursive.index[i], 'positive_tests_lag1'] = log_pred_yesterday
+        
+        current_features = X_predict_recursive.iloc[[i]][feature_cols].copy()
+        
+        # 2. Base Model Prediction
+        log_pred_base = rf_regressor.predict(current_features)[0]
+        pred_base = np.expm1(log_pred_base)
+        
+        # 3. Apply Adjusted Ratio Logic (2.5/1.0/0.75)
+        multiplier = 1.0  # Default multiplier
+        
+        if date_i in df_sales_lookup.index and date_i in df_avg_sales_lookup.index and df_avg_sales_lookup.loc[date_i] > 0:
+            sales_t = df_sales_lookup.loc[date_i]
+            avg_sales_t_minus_7 = df_avg_sales_lookup.loc[date_i]
+            
+            ratio = sales_t / avg_sales_t_minus_7
+            
+            if ratio >= 2.0:
+                multiplier = 2.5
+            elif ratio < 0.75:
+                multiplier = 0.75
+        
+        # 4. Calculate final prediction with Min 1 constraint on sales drop
+        pred_raw = pred_base * multiplier
+        
+        if multiplier == 0.75:
+            pred_final = max(1, round(max(0, pred_raw)))
+        else:
+            pred_final = round(max(0, pred_raw))
+        
+        pred_final = int(pred_final)
+        
+        # 5. Store final prediction
+        df_pred_results.loc[date_i, 'predicted_tests'] = pred_final
+        
+        # 6. Update features for the next iteration (i+1) using the LOG of the final prediction
+        if i < len(df_pred_results) - 1:
+            log_pred_final = np.log1p(pred_final)
+            
+            for lag in range(LAGS, 1, -1):
+                lag_col = f'positive_tests_lag{lag}'
+                lag_col_minus_1 = f'positive_tests_lag{lag-1}'
+                X_predict_recursive.loc[X_predict_recursive.index[i+1], lag_col] = \
+                    X_predict_recursive.loc[X_predict_recursive.index[i+1], lag_col_minus_1]
+            
+            X_predict_recursive.loc[X_predict_recursive.index[i+1], 'positive_tests_lag1'] = log_pred_final
+    
+    # Calculate MAE only if we have actual values
+    has_actuals = df_pred_results['actual_tests'].notna().any()
+    if has_actuals:
+        valid_rows = df_pred_results[df_pred_results['actual_tests'].notna()]
+        mae = mean_absolute_error(valid_rows['actual_tests'], valid_rows['predicted_tests'])
+    else:
+        mae = None  # Future predictions have no actual values yet
+    
+    # Return results
+    df_comp = df_pred_results.reset_index()
+    df_comp['predicted_tests'] = df_comp['predicted_tests'].astype(int)
+    # Keep actual_tests as float if it has NaN (future dates)
+    if df_comp['actual_tests'].notna().any():
+        df_comp['actual_tests'] = df_comp['actual_tests'].fillna(-1).astype(int)
+    
     return df_comp, mae
 
 

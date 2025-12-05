@@ -21,8 +21,10 @@ from .models import ForecastModel, Forecast, TrainingSession
 from .ml_models import (
     train_malaria_model,
     train_dengue_model,
+    train_diarrhoea_model,
     generate_malaria_forecast,
     generate_dengue_forecast,
+    generate_diarrhoea_forecast,
     save_model,
     load_model,
     PREDICT_START_DATE,
@@ -71,6 +73,11 @@ def train_custom_model(session_id):
                 forecast_start=forecast_start,
                 forecast_end=forecast_end
             )
+        elif disease == 'DIARRHOEA':
+            model, feature_cols, metrics = train_diarrhoea_model(
+                training_start=training_start,
+                training_end=training_end
+            )
         else:
             raise ValueError(f'Unknown disease: {disease}')
 
@@ -80,12 +87,22 @@ def train_custom_model(session_id):
         model_name = f'{disease.lower()}_model_custom_{session.id}'
         model_path = save_model(model, feature_cols, metrics, disease)
 
+        # Set algorithm name based on disease
+        if disease == 'MALARIA':
+            algorithm_name = 'RandomForest + Peak Cycle Heuristic'
+        elif disease == 'DENGUE':
+            algorithm_name = 'RandomForest + Sales Surge Detection'
+        elif disease == 'DIARRHOEA':
+            algorithm_name = 'RandomForest + Ratio Logic'
+        else:
+            algorithm_name = 'RandomForest'
+
         # Create or get ForecastModel record
         forecast_model, created = ForecastModel.objects.get_or_create(
             name=model_name,
             version=f'custom_{session.id}',
             defaults={
-                'algorithm': 'RandomForest',
+                'algorithm': algorithm_name,
                 'disease': disease,
                 'description': f'Custom training: {training_start} to {training_end}',
                 'model_file': model_path,
@@ -106,12 +123,18 @@ def train_custom_model(session_id):
         print(f"Starting forecast generation for {disease} from {forecast_start} to {forecast_end}")
         if disease == 'MALARIA':
             forecasts_df, forecast_mae = generate_malaria_forecast(
-                model, feature_cols, forecast_start, forecast_end
+                model, feature_cols, forecast_start, forecast_end, training_end=training_end
+            )
+        elif disease == 'DENGUE':
+            forecasts_df, forecast_mae = generate_dengue_forecast(
+                model, feature_cols, forecast_start, forecast_end, training_end=training_end
+            )
+        elif disease == 'DIARRHOEA':
+            forecasts_df, forecast_mae = generate_diarrhoea_forecast(
+                model, feature_cols, forecast_start, forecast_end, training_end=training_end
             )
         else:
-            forecasts_df, forecast_mae = generate_dengue_forecast(
-                model, feature_cols, forecast_start, forecast_end
-            )
+            raise ValueError(f'Unsupported disease: {disease}')
         
         print(f"Forecast generation complete. Generated {len(forecasts_df)} forecasts")
         print(f"Forecast DataFrame columns: {forecasts_df.columns.tolist()}")
